@@ -1,0 +1,175 @@
+---
+title: "eds-223-week-1-lab"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+rm(list = ls())
+library(sf)
+library(tidyverse)
+library(spData)
+library(tmap)
+```
+
+```{r}
+london_point <- st_point(c(0.1, 51.5))
+
+london_geom <- st_sfc(london_point, crs = 4326) #assigning point a CRS (WGS 84) using specific code
+
+london_attribute <- data.frame( #making dataset with london temp data
+  name = "London",
+  temperature = 25,
+  date = as.Date("2017-06-21")
+) 
+
+london_sf <- st_sf(london_attribute, geometry = london_geom)
+
+class(london_sf)
+
+st_crs(london_sf)$IsGeographic
+```
+
+```{r}
+world <- spData::world #load in a dataset of world data
+
+names(world)
+
+summary(world)
+
+summary(world$lifeExp)
+```
+
+```{r}
+world_df <- world %>% #showing that you can't get rid of the geometry attirbute
+  select(-geom)
+
+world_df <- world %>% #same thing, if you really need to get rid of it, there is a special function for that
+  select(continent)
+```
+
+```{r}
+world_df <- st_drop_geometry(world) #special function used to get rid of geometry if needed
+```
+
+##Reprojecting Data
+
+```{r}
+london_proj <- data.frame(x = 53000, y = 180000) %>% #creating data frame of location
+  st_as_sf(coords = c("x", "y"), crs = "EPSG:27700") #making this spatial data, telling R that x is longitude and y is latitude (5300 and 180000)
+
+st_crs(london_proj) == st_crs(london_sf) #testing to see if our crs is the same --> get a FALSE, so they are different
+
+london_sf_transformed <- st_transform(london_sf, crs = st_crs(london_proj)) #taking london_sf and giving it crs of london_proj
+
+#if else statement confirming that crs's match
+if(st_crs(london_sf_transformed) == st_crs(london_proj)) {
+  print("coordinate reference systems of datasets match")
+} else {
+  warning("coordinate reference systems do not match")
+}
+```
+
+```{r}
+tm_shape(world, projection = 8857) +
+  tm_fill(col = "area_km2") #showing two different world maps with different projections
+```
+
+```{r}
+tm_shape(world, projection = 3395) +
+  tm_fill(col = "area_km2")
+```
+
+##Vector attribute subsetting
+
+```{r}
+world %>%
+  select(name_long, pop)
+
+world %>%
+  select(-subregion) #get rid of subregion attribute
+
+world %>%
+  select(name = name_long, population = pop) #rename attributes
+```
+
+```{r}
+world1 <- world %>%
+  filter(area_km2 < 10000) #new dataset with only small countries
+```
+
+```{r}
+world %>%
+  filter(continent == "Asia") %>%
+  select(name_long, continent, lifeExp) %>%
+  slice_max(lifeExp) %>%
+  st_drop_geometry()
+```
+
+```{r}
+world %>%
+  group_by(continent) %>%
+  summarise(population = sum(pop, na.rm = TRUE)) %>%
+  st_drop_geometry()
+```
+
+##Joins with vector attributes
+
+```{r}
+coffee_data <- spData::coffee_data- #loading in coffee data
+
+nrow(coffee_data)
+nrow(world)
+```
+
+```{r}
+#joining coffee and world data together by shared attribute --> name_long
+world_coffee <- left_join(world, coffee_data, by = "name_long")
+```
+
+```{r}
+#making map of coffe production around the world
+tm_shape(world_coffee) + 
+  tm_fill(col = "coffee_production_2017")
+```
+
+```{r}
+#make new dataframe that keeps only countries that are on both original dataframes
+world_coffee_inner <- inner_join(world, coffee_data, by = "name_long")
+
+#we actually lost a country, which doesn't make sense because world has all countries so every world_coffee should have stayed --> maybe a country was named differently in one of the datasets
+if(nrow(world_coffee_inner) < nrow(coffee_data)) {
+  warning("inner join does not match original data. potential data loss during joing")
+}
+```
+
+```{r}
+#let's find which country names have discrepancies among the datasets
+
+#dem. rep. of congo is named differently
+setdiff(coffee_data$name_long, world$name_long)
+```
+
+```{r}
+#trying to find what congo is named in world
+drc <- stringr::str_subset(world$name_long, "Dem*.+Congo") #looks for "Dem.....Congo"
+```
+
+```{r}
+#finding congo in coffee data and renaming it drc from world data
+coffee_data$name_long[stringr::str_detect(coffee_data$name_long, "Congo")] <- drc
+```
+
+```{r}
+tm_shape(world_coffee_inner) +
+  tm_polygons(fill = "coffee_production_2017",
+              title = "Coffee Production (2017)") +
+  tm_layout(legend.outside = TRUE)
+```
+
+```{r}
+coffee_world <- left_join(coffee_data, world, by = "name_long")
+class(coffee_world)
+```
